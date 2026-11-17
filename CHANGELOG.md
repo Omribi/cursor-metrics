@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.19] - 2026-11-17
+
+### Fixed
+- Decrypt Cursor session tokens sealed as `cursor-safe-storage:v1:` (Electron OSCrypt / Windows DPAPI, macOS Keychain, Linux basic-text) so usage fetch works on current Cursor builds.
+- Read live included usage from `/api/usage-summary` instead of only the legacy `/api/usage` request counters, which now often return empty totals.
+- Show Auto/API pool percentages (or included spend) in the status bar, tooltip, and dashboard instead of a stale request counter.
+
 ## [0.5.18] - 2026-05-07
 
 ### Added

@@ -28,6 +28,11 @@ import {
   buildUsageOverviewMarkdown,
   OPEN_DURATION_SETTING_COMMAND,
 } from "./tooltip";
+import {
+  formatIncludedUsage,
+  formatMinimalStatusBarUsageText,
+  formatStatusBarUsageText,
+} from "./usage-display";
 
 let statusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
@@ -199,41 +204,10 @@ function getOnDemandRatio(onDemand: OnDemandUsage): number | null {
   return onDemand.spendDollars / onDemand.limitDollars;
 }
 
-function formatOnDemandStatus(onDemand: OnDemandUsage): string {
-  if (onDemand.state === "unlimited") {
-    return `$${onDemand.spendDollars.toFixed(2)}`;
-  }
-  return `$${onDemand.spendDollars.toFixed(2)}/$${(onDemand.limitDollars ?? 0).toFixed(2)}`;
-}
-
-function formatOnDemandTooltipCell(onDemand: OnDemandUsage): string {
-  if (onDemand.state === "unlimited") {
-    return `$${onDemand.spendDollars.toFixed(2)}`;
-  }
-  const ratio = getOnDemandRatio(onDemand);
-  const pct = ratio === null ? 0 : Math.round(ratio * 100);
-  return `$${onDemand.spendDollars.toFixed(2)} / $${(onDemand.limitDollars ?? 0).toFixed(2)} (${pct}%)`;
-}
-
 function updateStatusBar(data: UsagePayload) {
-  const { includedRequests, onDemand } = data;
   const { minimalMode } = getConfig();
 
-  const premiumExhausted = includedRequests.used >= includedRequests.limit;
-  const onDemandVisible = isOnDemandVisible(onDemand);
-
-  if (minimalMode) {
-    if (premiumExhausted && onDemandVisible) {
-      statusBarItem.text = `$(pulse) ${formatOnDemandStatus(onDemand)}`;
-    } else {
-      statusBarItem.text = `$(pulse) ${includedRequests.used}/${includedRequests.limit}`;
-    }
-  } else {
-    const includedText = `${includedRequests.used}/${includedRequests.limit}`;
-    statusBarItem.text = onDemandVisible
-      ? `$(pulse) ${includedText} | ${formatOnDemandStatus(onDemand)}`
-      : `$(pulse) ${includedText}`;
-  }
+  statusBarItem.text = `$(pulse) ${minimalMode ? formatMinimalStatusBarUsageText(data) : formatStatusBarUsageText(data)}`;
 
   const tooltip = new vscode.MarkdownString();
   tooltip.isTrusted = {
@@ -245,7 +219,7 @@ function updateStatusBar(data: UsagePayload) {
   const barW = 150;
   let md = `### $(pulse) Cursor Usage\n\n`;
   md += buildUsageOverviewMarkdown(
-    { includedRequests, onDemand },
+    { includedRequests, onDemand, poolUsage: data.poolUsage, includedMetric: data.includedMetric },
     {
       markdown: (ratio) => progressBarMarkdown(ratio, barW),
       html: (ratio) => progressBarHtml(ratio, barW),
@@ -362,13 +336,15 @@ async function showDetails() {
     return;
   }
 
-  const { includedRequests, onDemand, resetsAt } = lastData;
+  const { includedRequests, onDemand, resetsAt, poolUsage } = lastData;
   const reqPct = includedRequests.limit > 0 ? Math.round((includedRequests.used / includedRequests.limit) * 100) : 0;
   const spendRatio = getOnDemandRatio(onDemand);
   const spendPct = spendRatio === null ? null : Math.round(spendRatio * 100);
   const onDemandVisible = isOnDemandVisible(onDemand);
 
-  let message = `Requests: ${includedRequests.used}/${includedRequests.limit} (${reqPct}%)`;
+  let message = poolUsage
+    ? `Auto: ${poolUsage.autoPercentUsed.toFixed(1)}% | API: ${poolUsage.apiPercentUsed.toFixed(1)}%`
+    : `Included: ${formatIncludedUsage(lastData)} (${reqPct}%)`;
   if (onDemandVisible) {
     const spendText = onDemand.state === "unlimited"
       ? `$${onDemand.spendDollars.toFixed(2)}`

@@ -1,14 +1,31 @@
 import { closeSync, existsSync, fstatSync, openSync, readSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import { isSealedCursorAuthSecret, openCursorAuthSecret } from "./cursor-safe-storage";
+import { parseUserIdFromJwt } from "./jwt";
+import {
+  extractTeamRequestLimit,
+  extractTeamUsedRequests,
+  extractUsageFromSummary,
+} from "./usage-summary";
+
+export type PoolUsage = {
+  autoPercentUsed: number;
+  apiPercentUsed: number;
+  totalPercentUsed: number;
+};
+
+export type IncludedMetric = "requests" | "cents";
 
 export type UsagePayload = {
   includedRequests: { used: number; limit: number };
+  includedMetric?: IncludedMetric;
   onDemand: {
     state: "disabled" | "limited" | "unlimited";
     spendDollars: number;
     limitDollars: number | null;
   };
+  poolUsage?: PoolUsage | null;
   resetsAt: string | null;
 };
 
@@ -346,15 +363,31 @@ async function getCursorToken(): Promise<AuthInfo | null> {
     return null;
   }
 
-  const jwt = authValues["cursorAuth/accessToken"] ?? null;
-  if (!jwt) {
+  const stored = authValues["cursorAuth/accessToken"] ?? null;
+  if (!stored) {
     log("No accessToken found in database");
     return null;
   }
 
+  let jwt: string;
+  try {
+    if (isSealedCursorAuthSecret(stored)) {
+      log("Stored accessToken is sealed; decrypting with OS safeStorage");
+    }
+    jwt = await openCursorAuthSecret(stored);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Could not decrypt sealed token";
+    log(`Could not open accessToken: ${msg}`);
+    return null;
+  }
+
+  const userId = parseUserIdFromJwt(jwt);
+  if (!userId) {
+    log("Could not parse userId from JWT");
+    return null;
+  }
+
   log(`Found JWT token (${jwt.length} chars)`);
-  const payload = JSON.parse(Buffer.from(jwt.split(".")[1]!, "base64").toString());
-  const userId: string = payload.sub.split("|")[1];
   log(`Parsed userId: ${userId}`);
 
   const email = authValues["cursorAuth/cachedEmail"] ?? null;
@@ -381,7 +414,6 @@ function nextMonth(iso: string): string {
 }
 
 type RequestTotals = { used: number; limit: number; source: string };
-type NumberWithSource = { value: number; source: string };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
@@ -483,36 +515,32 @@ function extractUsageTotals(usageRaw: unknown): RequestTotals {
   return { used: 0, limit: 0, source: "none" };
 }
 
-function pickNumber(record: Record<string, unknown>, fields: string[]): NumberWithSource | null {
-  for (const field of fields) {
-    const value = toNumber(record[field]);
-    if (value !== null) {
-      return { value, source: field };
-    }
+async function fetchUsageSummary(
+  headers: ReturnType<typeof cursorHeaders>,
+): Promise<Record<string, unknown> | null> {
+  const res = await fetch("https://cursor.com/api/usage-summary", withTimeout({ headers }));
+  if (!res.ok) {
+    log(`usage-summary failed: ${res.status}`);
+    return null;
   }
-  return null;
-}
-
-function extractTeamUsedRequests(member: Record<string, unknown>): NumberWithSource {
-  return (
-    pickNumber(member, [
-      "includedRequestsUsed",
-      "numRequests",
-      "requestsUsed",
-      "fastPremiumRequests",
-    ]) ?? { value: 0, source: "fallback:0" }
-  );
-}
-
-function extractTeamRequestLimit(
-  member: Record<string, unknown>,
-  fallbackLimit: number,
-): NumberWithSource {
-  return (
-    pickNumber(member, ["includedRequestLimit", "maxRequestUsage"]) ?? {
-      value: fallbackLimit,
-      source: "setup.maxRequestUsage",
+  try {
+    const data = asRecord(await res.json());
+    if (!data) {
+      log("usage-summary returned invalid JSON");
+      return null;
     }
+    return data;
+  } catch {
+    log("usage-summary returned invalid JSON");
+    return null;
+  }
+}
+
+function summaryHasUsage(payload: UsagePayload): boolean {
+  return (
+    payload.includedRequests.limit > 0
+    || payload.includedRequests.used > 0
+    || Boolean(payload.poolUsage)
   );
 }
 
@@ -535,22 +563,26 @@ async function ensureSetup(
 ): Promise<SetupCache | null> {
   if (cachedSetup) return cachedSetup;
 
-  log("Running one-time setup (stripe + usage)...");
-  const [stripeRes, usageRes] = await Promise.all([
+  log("Running one-time setup (stripe + usage + usage-summary)...");
+  const [stripeRes, usageRes, summaryRes] = await Promise.all([
     fetch("https://cursor.com/api/auth/stripe", withTimeout({ headers })),
     fetch(`https://cursor.com/api/usage?user=${userId}`, withTimeout({ headers })),
+    fetch("https://cursor.com/api/usage-summary", withTimeout({ headers })),
   ]);
 
-  log(`Setup: Stripe ${stripeRes.status}, Usage ${usageRes.status}`);
+  log(`Setup: Stripe ${stripeRes.status}, Usage ${usageRes.status}, Summary ${summaryRes.status}`);
 
   const stripe = stripeRes.ok ? await stripeRes.json() : null;
   const usage = usageRes.ok ? await usageRes.json() : null;
+  const summary = summaryRes.ok ? await summaryRes.json() : null;
   const totals = extractUsageTotals(usage);
+  const summaryPayload = extractUsageFromSummary(summary, Boolean(stripe?.isOnBillableAuto));
+  const summaryLimit = summaryPayload?.includedRequests.limit ?? 0;
 
   cachedSetup = {
     isTeamMember: !!(stripe?.isTeamMember && stripe.teamId),
     teamId: stripe?.teamId,
-    maxRequestUsage: totals.limit > 0 ? totals.limit : totals.used,
+    maxRequestUsage: summaryLimit > 0 ? summaryLimit : totals.limit > 0 ? totals.limit : totals.used,
     onDemandEnabled: Boolean(stripe?.isOnBillableAuto),
   };
 
@@ -574,6 +606,20 @@ export async function fetchUsageData(): Promise<UsagePayload | null> {
   if (!setup) {
     log("Setup failed");
     return null;
+  }
+
+  const summary = await fetchUsageSummary(headers);
+  if (summary) {
+    const fromSummary = extractUsageFromSummary(summary, setup.onDemandEnabled);
+    if (fromSummary && summaryHasUsage(fromSummary)) {
+      log(
+        fromSummary.poolUsage
+          ? `Using usage-summary pools: Auto ${fromSummary.poolUsage.autoPercentUsed}% / API ${fromSummary.poolUsage.apiPercentUsed}%`
+          : `Using usage-summary: ${fromSummary.includedRequests.used}/${fromSummary.includedRequests.limit} ${fromSummary.includedMetric ?? "requests"}`,
+      );
+      return fromSummary;
+    }
+    log("usage-summary returned no usable plan limits; falling back to legacy endpoints");
   }
 
   if (setup.isTeamMember) {
@@ -635,6 +681,8 @@ async function fetchTeamUsage(
 
   const used = usageTotals && usageTotals.used > 0 ? usageTotals.used : memberUsed.value;
   const limit = usageTotals && usageTotals.limit > 0 ? usageTotals.limit : memberLimit.value;
+  const usedLooksLikeCents = memberUsed.source === "overallSpendCents" || memberUsed.source === "spendCents";
+  const limitLooksLikeCents = memberLimit.source.includes("*100");
   const usedSource = usageTotals && usageTotals.used > 0
     ? `usage.${usageTotals.source}.used`
     : `member.${memberUsed.source}`;
@@ -659,6 +707,7 @@ async function fetchTeamUsage(
       used,
       limit,
     },
+    includedMetric: usedLooksLikeCents || limitLooksLikeCents ? "cents" : "requests",
     onDemand: {
       state: onDemandState,
       spendDollars,

@@ -1,9 +1,12 @@
 import type { UsagePayload } from "./cursor-api";
 import { getDurationLabel } from "./duration-options";
+import { formatPercent } from "./format";
 import type { UsageDuration } from "./model-breakdown";
+import { formatIncludedUsageSpaced } from "./usage-display";
 
 type IncludedRequestsUsage = UsagePayload["includedRequests"];
 type OnDemandUsage = UsagePayload["onDemand"];
+type PoolUsage = NonNullable<UsagePayload["poolUsage"]>;
 
 type ProgressBarRenderer = {
   markdown: (ratio: number) => string;
@@ -25,8 +28,11 @@ type SummaryColumn = {
   footer: string;
 };
 
-function formatIncludedValue(includedRequests: IncludedRequestsUsage): string {
-  return `${includedRequests.used} / ${includedRequests.limit}`;
+function formatIncludedValue(
+  includedRequests: IncludedRequestsUsage,
+  includedMetric: UsagePayload["includedMetric"],
+): string {
+  return formatIncludedUsageSpaced({ includedRequests, includedMetric });
 }
 
 function formatOnDemandValue(onDemand: OnDemandUsage): string {
@@ -58,15 +64,31 @@ function buildSummaryTable(columns: SummaryColumn[], renderProgressBar: Progress
   ].join("\n");
 }
 
+function buildPoolColumns(poolUsage: PoolUsage, renderProgressBar: ProgressBarRenderer): SummaryColumn[] {
+  return [
+    {
+      label: "Auto",
+      value: `${formatPercent(poolUsage.autoPercentUsed)}%`,
+      footer: renderProgressBar.html(Math.min(Math.max(poolUsage.autoPercentUsed / 100, 0), 1)),
+    },
+    {
+      label: "API",
+      value: `${formatPercent(poolUsage.apiPercentUsed)}%`,
+      footer: renderProgressBar.html(Math.min(Math.max(poolUsage.apiPercentUsed / 100, 0), 1)),
+    },
+  ];
+}
+
 function buildSummaryColumns(
   includedRequests: IncludedRequestsUsage,
   onDemand: OnDemandUsage,
   renderProgressBar: ProgressBarRenderer,
+  includedMetric: UsagePayload["includedMetric"],
 ): SummaryColumn[] {
   const reqRatio = includedRequests.limit > 0 ? includedRequests.used / includedRequests.limit : 0;
   const includedColumn: SummaryColumn = {
     label: "Included",
-    value: formatIncludedValue(includedRequests),
+    value: formatIncludedValue(includedRequests, includedMetric),
     footer: renderProgressBar.html(reqRatio),
   };
 
@@ -98,11 +120,17 @@ function buildSummaryColumns(
 }
 
 export function buildUsageOverviewMarkdown(
-  data: Pick<UsagePayload, "includedRequests" | "onDemand">,
+  data: Pick<UsagePayload, "includedRequests" | "onDemand"> & Partial<Pick<UsagePayload, "poolUsage" | "includedMetric">>,
   renderProgressBar: ProgressBarRenderer,
 ): string {
-  const { includedRequests, onDemand } = data;
-  return buildSummaryTable(buildSummaryColumns(includedRequests, onDemand, renderProgressBar), renderProgressBar);
+  const { includedRequests, onDemand, poolUsage, includedMetric } = data;
+  if (poolUsage) {
+    return buildSummaryTable(buildPoolColumns(poolUsage, renderProgressBar), renderProgressBar);
+  }
+  return buildSummaryTable(
+    buildSummaryColumns(includedRequests, onDemand, renderProgressBar, includedMetric),
+    renderProgressBar,
+  );
 }
 
 export function buildUsageByModelHeadingMarkdown(duration: UsageDuration): string {

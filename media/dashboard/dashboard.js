@@ -194,24 +194,56 @@
     });
   }
 
+  function formatPercent(value) {
+    const rounded = Math.round((value || 0) * 10) / 10;
+    return (Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)) + "%";
+  }
+
+  function formatIncludedValue(data) {
+    const includedRequests = data.includedRequests || { used: 0, limit: 0 };
+    if (data.includedMetric === "cents") {
+      return formatDollars((includedRequests.used || 0) / 100) + " / " + formatDollars((includedRequests.limit || 0) / 100);
+    }
+    return includedRequests.used + " / " + includedRequests.limit;
+  }
+
   function renderSummaryCards() {
     if (!state || !state.data) {
       ui.summaryCards.innerHTML = '<div class="card"><div class="card-label">No data yet</div></div>';
       return;
     }
-    const { includedRequests, onDemand } = state.data;
+    const { includedRequests, onDemand, poolUsage, includedMetric } = state.data;
     const reqRatio = includedRequests.limit > 0 ? Math.min(1, includedRequests.used / includedRequests.limit) : 0;
     const reqPct = Math.round(reqRatio * 100);
 
     const parts = [];
-    parts.push(
-      '<div class="card">' +
-        '<div class="card-label">Included-Request Usage</div>' +
-        '<div class="card-value">' + includedRequests.used + " / " + includedRequests.limit + "</div>" +
-        '<div class="progress"><div style="width:' + (reqPct) + '%"></div></div>' +
-        '<div class="card-footer">' + formatResetCountdown(state.resetsAt) + "</div>" +
-      "</div>"
-    );
+    if (poolUsage) {
+      parts.push(
+        '<div class="card">' +
+          '<div class="card-label">Auto / First-party</div>' +
+          '<div class="card-value">' + formatPercent(poolUsage.autoPercentUsed) + "</div>" +
+          '<div class="progress"><div style="width:' + Math.min(100, Math.round(poolUsage.autoPercentUsed || 0)) + '%"></div></div>' +
+          '<div class="card-footer">' + formatResetCountdown(state.resetsAt) + "</div>" +
+        "</div>"
+      );
+      parts.push(
+        '<div class="card">' +
+          '<div class="card-label">API models</div>' +
+          '<div class="card-value">' + formatPercent(poolUsage.apiPercentUsed) + "</div>" +
+          '<div class="progress"><div style="width:' + Math.min(100, Math.round(poolUsage.apiPercentUsed || 0)) + '%"></div></div>' +
+          '<div class="card-footer">Included API usage this cycle</div>' +
+        "</div>"
+      );
+    } else {
+      parts.push(
+        '<div class="card">' +
+          '<div class="card-label">' + (includedMetric === "cents" ? "Included Usage" : "Included-Request Usage") + "</div>" +
+          '<div class="card-value">' + formatIncludedValue(state.data) + "</div>" +
+          '<div class="progress"><div style="width:' + (reqPct) + '%"></div></div>' +
+          '<div class="card-footer">' + formatResetCountdown(state.resetsAt) + "</div>" +
+        "</div>"
+      );
+    }
 
     if (onDemand.state !== "disabled") {
       let valText, footerText, ratio;

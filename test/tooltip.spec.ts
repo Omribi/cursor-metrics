@@ -73,6 +73,26 @@ describe("buildUsageOverviewMarkdown", () => {
     expect(markdown).not.toContain("8% used");
     expect(markdown).not.toContain("On-demand");
   });
+
+  it("renders Auto and API pool percentages when current Cursor usage is pool-based", () => {
+    const markdown = buildUsageOverviewMarkdown(
+      {
+        includedRequests: { used: 2943, limit: 40000 },
+        includedMetric: "cents",
+        onDemand: { state: "disabled", spendDollars: 0, limitDollars: null },
+        poolUsage: { autoPercentUsed: 12.5, apiPercentUsed: 4, totalPercentUsed: 8 },
+      },
+      progressBar,
+    );
+
+    expect(markdown).toContain("<td><sub>Auto</sub></td>");
+    expect(markdown).toContain("<td><sub>API</sub></td>");
+    expect(markdown).toContain("<strong>12.5%</strong>");
+    expect(markdown).toContain("<strong>4%</strong>");
+    expect(markdown).toContain("<bar:0.13>");
+    expect(markdown).toContain("<bar:0.04>");
+    expect(markdown).not.toContain("$29.43");
+  });
 });
 
 describe("buildUsageByModelHeadingMarkdown", () => {

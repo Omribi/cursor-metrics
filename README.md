@@ -8,7 +8,7 @@ See Cursor usage in your status bar: included requests and on-demand spend, live
 
 ## What you get
 
-- Compact status bar display (for example: `500/500 | $114.78/$300`).
+- Compact status bar display (for example: `12.5% Auto | 4% API` or `500/500 | $114.78/$300`).
 - Detailed hover tooltip with progress bars, reset countdown, and per-model usage.
 - Full dashboard tab with summary cards, a per-day stacked bar chart, a sortable Usage by Model table, and a per-event Events table with Export CSV.
 - Loading indicator while fresh usage data is being fetched.
@@ -30,7 +30,7 @@ See Cursor usage in your status bar: included requests and on-demand spend, live
 ## Privacy and behavior
 
 - No manual API key setup required.
-- Uses your existing signed-in Cursor session locally.
+- Uses your existing signed-in Cursor session locally. Recent Cursor builds may store `cursorAuth/accessToken` as `cursor-safe-storage:v1:`; the extension decrypts that value on this machine and only sends it to Cursor's own usage endpoints.
 - Fetches on activity (editing/focus) instead of constant polling.
 - Caches auth and API responses to avoid redundant requests.
 
