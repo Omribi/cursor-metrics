@@ -30,7 +30,7 @@ See Cursor usage in your status bar: included requests and on-demand spend, live
 ## Privacy and behavior
 
 - No manual API key setup required.
-- Uses your existing signed-in Cursor session locally. Recent Cursor builds may store `cursorAuth/accessToken` as `cursor-safe-storage:v1:`; the extension decrypts that value on this machine and only sends it to Cursor's own usage endpoints.
+- Uses your existing signed-in Cursor session locally. Recent Cursor builds may store `cursorAuth/accessToken` as `cursor-safe-storage:v1:`; the extension decrypts that value on this machine and only sends it to Cursor's own usage endpoints. Under WSL it reads the Windows Cursor database and decrypts with Windows DPAPI, not the Linux home directory.
 - Fetches on activity (editing/focus) instead of constant polling.
 - Caches auth and API responses to avoid redundant requests.
 

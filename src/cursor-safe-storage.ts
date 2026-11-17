@@ -1,8 +1,12 @@
 import { spawn } from "child_process";
 import { createDecipheriv, createHash, pbkdf2Sync } from "crypto";
 import { readFileSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
+import {
+  cursorLocalStatePath,
+  resolveWindowsPowershell,
+  usesWindowsOsCrypt,
+  windowsInteropCwd,
+} from "./cursor-host-paths";
 
 const SAFE_STORAGE_PREFIX = "cursor-safe-storage:v1:";
 const DECRYPT_FAILED = "Could not decrypt sealed token";
@@ -54,7 +58,9 @@ export function openCursorAuthSecret(stored: string, material?: OsCryptMaterial)
   if (version === "v11") {
     if (hasAes) return Promise.reject(new Error(UNSUPPORTED));
     if (hasCbc) return Promise.resolve(decryptCbc(blob, material!.cbcPassword!, material!.cbcIterations!));
-    if (process.platform === "linux") return Promise.resolve(decryptCbc(blob, "peanuts", 1));
+    if (process.platform === "linux" && !usesWindowsOsCrypt()) {
+      return Promise.resolve(decryptCbc(blob, "peanuts", 1));
+    }
     return Promise.reject(new Error(UNSUPPORTED));
   }
 
@@ -65,13 +71,23 @@ export function openCursorAuthSecret(stored: string, material?: OsCryptMaterial)
   }
 
   if (hasAes || hasCbc) return Promise.reject(new Error(UNSUPPORTED));
-  if (process.platform === "win32") return openLegacyDpapi(blob);
+  if (usesWindowsOsCrypt()) return openLegacyDpapi(blob);
   return Promise.reject(new Error(UNSUPPORTED));
 }
 
 function decodeSealedPayload(payload: string): Buffer {
   if (payload.length === 0 || !STANDARD_BASE64.test(payload)) throw new Error(INVALID_BASE64);
   return Buffer.from(payload, "base64");
+}
+
+function decodeWindowsConsole(buffer: Buffer): string {
+  if (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe) {
+    return buffer.subarray(2).toString("utf16le").trim();
+  }
+  if (buffer.length >= 4 && buffer[1] === 0 && buffer[3] === 0) {
+    return buffer.toString("utf16le").trim();
+  }
+  return buffer.toString("utf8").trim();
 }
 
 function decryptGcm(blob: Buffer, key: Buffer): string {
@@ -101,7 +117,7 @@ function decryptCbc(blob: Buffer, password: string, iterations: number): string 
 }
 
 function decryptHostV10(blob: Buffer): Promise<string> {
-  if (process.platform === "win32") return windowsOsCryptKey().then((key) => decryptGcm(blob, key));
+  if (usesWindowsOsCrypt()) return windowsOsCryptKey().then((key) => decryptGcm(blob, key));
   if (process.platform === "darwin") {
     return cursorSafeStoragePassword().then((password) => decryptCbc(blob, password, 1003));
   }
@@ -129,11 +145,7 @@ function windowsOsCryptKey(): Promise<Buffer> {
 function unwrapWindowsKey(): Promise<Buffer> {
   let sealed: Buffer;
   try {
-    const localStatePath = join(
-      process.env.APPDATA ?? join(homedir(), "AppData/Roaming"),
-      "Cursor",
-      "Local State",
-    );
+    const localStatePath = cursorLocalStatePath();
     const parsed = JSON.parse(readFileSync(localStatePath, "utf8")) as {
       os_crypt?: { encrypted_key?: unknown };
     };
@@ -182,9 +194,9 @@ function unprotectDpapi(blob: Buffer): Promise<Buffer> {
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const child = spawn(
-      "powershell.exe",
+      resolveWindowsPowershell(),
       ["-NoProfile", "-NonInteractive", "-Command", DPAPI_UNPROTECT_SCRIPT],
-      { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] },
+      { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], cwd: windowsInteropCwd() },
     );
     const fail = () => {
       if (settled) return;
@@ -213,7 +225,7 @@ function unprotectDpapi(blob: Buffer): Promise<Buffer> {
         reject(new Error(KEY_UNWRAP_FAILED));
         return;
       }
-      const text = Buffer.concat(stdout).toString("utf8").trim();
+      const text = decodeWindowsConsole(Buffer.concat(stdout));
       if (!/^[A-Za-z0-9+/]+={0,2}$/.test(text)) {
         reject(new Error(KEY_UNWRAP_FAILED));
         return;

@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.20] - 2026-11-17
+
+### Fixed
+- Resolve Cursor's Windows `state.vscdb` and OSCrypt Local State when the extension host runs in WSL, and unwrap the Windows DPAPI key via the host's PowerShell, so usage works in Remote-WSL instead of looking under the Linux home directory.
+
 ## [0.5.19] - 2026-11-17
 
 ### Fixed

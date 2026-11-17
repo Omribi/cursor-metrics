@@ -1,6 +1,5 @@
 import { closeSync, existsSync, fstatSync, openSync, readSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
+import { cursorStateDbPath, liveCursorHost } from "./cursor-host-paths";
 import { isSealedCursorAuthSecret, openCursorAuthSecret } from "./cursor-safe-storage";
 import { parseUserIdFromJwt } from "./jwt";
 import {
@@ -55,14 +54,12 @@ export function configure(opts: { logger: Logger }) {
 }
 
 function getDbPath(): string {
-  switch (process.platform) {
-    case "darwin":
-      return join(homedir(), "Library/Application Support/Cursor/User/globalStorage/state.vscdb");
-    case "win32":
-      return join(process.env.APPDATA ?? join(homedir(), "AppData/Roaming"), "Cursor/User/globalStorage/state.vscdb");
-    default:
-      return join(homedir(), ".config/Cursor/User/globalStorage/state.vscdb");
-  }
+  return cursorStateDbPath({
+    ...liveCursorHost(),
+    onWslProfileError: () => {
+      log("WSL detected but could not resolve Windows user profile; falling back to Linux path");
+    },
+  });
 }
 
 type AuthInfo = { userId: string; sessionToken: string; email: string | null };
