@@ -2,6 +2,7 @@ import { closeSync, existsSync, fstatSync, openSync, readSync } from "fs";
 import { cursorStateDbPath, liveCursorHost } from "./cursor-host-paths";
 import { isSealedCursorAuthSecret, openCursorAuthSecret } from "./cursor-safe-storage";
 import { parseUserIdFromJwt } from "./jwt";
+import { parseEventSpendCents } from "./event-spend";
 import {
   extractTeamRequestLimit,
   extractTeamUsedRequests,
@@ -905,6 +906,7 @@ function parseEventKind(kind: string): string {
   if (kind === "USAGE_EVENT_KIND_USAGE_BASED") return "On-Demand";
   if (kind === "USAGE_EVENT_KIND_ERRORED_NOT_CHARGED") return "Errored";
   if (kind === "USAGE_EVENT_KIND_ABORTED_NOT_CHARGED") return "Aborted";
+  if (kind === "USAGE_EVENT_KIND_FREE_CREDIT") return "Included";
   return "Included";
 }
 
@@ -963,7 +965,7 @@ export async function fetchUsageEvents(): Promise<UsageEvent[]> {
         (toNumber(tok.cacheReadTokens) ?? 0);
 
       const requests = toNumber(e.requestsCosts) ?? toNumber(e.numRequests) ?? 1;
-      const spendCents = toNumber(e.chargedCents) ?? 0;
+      const spendCents = parseEventSpendCents(e);
 
       allEvents.push({
         timestamp: toNumber(e.timestamp) ?? 0,

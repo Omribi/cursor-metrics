@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.22] - 2026-11-18
+
+### Fixed
+- Read per-model spend from `tokenUsage.totalCents` when `chargedCents` is 0, which is how current included-usage events are billed.
+- Show included dollar spend in the dashboard model table, chart tooltip, and events on spend-based plans instead of forcing $0.00 under quota-aware display.
+
 ## [0.5.21] - 2026-11-18
 
 ### Fixed

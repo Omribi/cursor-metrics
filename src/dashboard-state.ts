@@ -1,4 +1,5 @@
 import type { DailySpendRow, UsageEvent, UsagePayload } from "./cursor-api";
+import { countIncludedSpend as includedSpendCountsTowardUsage } from "./event-spend";
 import { getDurationCutoff, type UsageDuration } from "./model-breakdown";
 
 export type ChartMetric = "spend" | "tokens" | "requests";
@@ -22,6 +23,7 @@ export type DashboardState = {
   resetsAt: string | null;
   isTeamMember: boolean;
   quotaAwareEventDisplay: boolean;
+  countIncludedSpend: boolean;
   error: string | null;
 };
 
@@ -40,8 +42,15 @@ function isOnDemand(event: UsageEvent): boolean {
   return event.kind === "On-Demand";
 }
 
-function billableSpendCents(event: UsageEvent, quotaAwareEventDisplay: boolean): number {
-  return quotaAwareEventDisplay && !isOnDemand(event) ? 0 : event.spendCents;
+function billableSpendCents(
+  event: UsageEvent,
+  quotaAwareEventDisplay: boolean,
+  countIncludedSpend = false,
+): number {
+  if (countIncludedSpend || !quotaAwareEventDisplay || isOnDemand(event)) {
+    return event.spendCents;
+  }
+  return 0;
 }
 
 function matchesUsageFilter(event: UsageEvent, filter: UsageFilter): boolean {
@@ -67,6 +76,7 @@ export function buildDashboardState(
     resetsAt: data?.resetsAt ?? null,
     isTeamMember,
     quotaAwareEventDisplay,
+    countIncludedSpend: includedSpendCountsTowardUsage(data?.includedMetric, quotaAwareEventDisplay),
     error,
   };
 }
@@ -98,10 +108,15 @@ function formatDayLabel(dayMs: number): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
-function eventValue(event: UsageEvent, metric: ChartMetric, quotaAwareEventDisplay: boolean): number {
+function eventValue(
+  event: UsageEvent,
+  metric: ChartMetric,
+  quotaAwareEventDisplay: boolean,
+  countIncludedSpend: boolean,
+): number {
   if (metric === "tokens") return event.totalTokens;
   if (metric === "requests") return event.requests;
-  return billableSpendCents(event, quotaAwareEventDisplay) / 100;
+  return billableSpendCents(event, quotaAwareEventDisplay, countIncludedSpend) / 100;
 }
 
 export function aggregateChartSeries(
@@ -113,6 +128,7 @@ export function aggregateChartSeries(
   usageFilter: UsageFilter,
   now: number,
   quotaAwareEventDisplay = true,
+  countIncludedSpend = false,
 ): ChartSeries {
   const cutoff = getDurationCutoff(range, resetAtIso, now);
   const days = buildDayBuckets(cutoff, now);
@@ -139,7 +155,7 @@ export function aggregateChartSeries(
     const idx = dayIndex.get(day);
     if (idx === undefined) continue;
     const arr = ensureModel(event.model);
-    arr[idx] = (arr[idx] ?? 0) + eventValue(event, metric, quotaAwareEventDisplay);
+    arr[idx] = (arr[idx] ?? 0) + eventValue(event, metric, quotaAwareEventDisplay, countIncludedSpend);
   }
 
   // Per-day (non-cumulative) totals per model.

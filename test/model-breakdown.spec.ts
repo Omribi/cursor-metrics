@@ -43,6 +43,19 @@ describe("model breakdown aggregation", () => {
     ]);
   });
 
+  it("uses per-event spend when daily spend rows are missing", () => {
+    const events: UsageEvent[] = [
+      { timestamp: now - 1 * dayMs, model: "cursor-grok-4.6-xhigh-fast", kind: "Included", totalTokens: 2000, requests: 1, spendCents: 94.42 },
+      { timestamp: now - 1 * dayMs, model: "claude-haiku-5.5-thinking-high", kind: "Included", totalTokens: 1000, requests: 2, spendCents: 12.5 },
+    ];
+
+    const rows = aggregateByModel(events, [], "7d", null, now);
+    expect(rows).toEqual([
+      { model: "cursor-grok-4.6-xhigh-fast", totalTokens: 2000, requests: 1, spendCents: 94.42 },
+      { model: "claude-haiku-5.5-thinking-high", totalTokens: 1000, requests: 2, spendCents: 12.5 },
+    ]);
+  });
+
   it("supports sorting by selected column and direction", () => {
     const events: UsageEvent[] = [
       { timestamp: now - 1 * dayMs, model: "zeta", kind: "On-Demand", totalTokens: 100, requests: 3 },

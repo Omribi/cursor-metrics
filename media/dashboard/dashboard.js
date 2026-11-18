@@ -157,8 +157,12 @@
     return event.kind === "Included";
   }
 
+  function countsIncludedSpend() {
+    return Boolean(state && state.countIncludedSpend);
+  }
+
   function eventSpendDollars(event) {
-    if (state && state.quotaAwareEventDisplay && !isOnDemandEvent(event)) return 0;
+    if (state && state.quotaAwareEventDisplay && !countsIncludedSpend() && !isOnDemandEvent(event)) return 0;
     return (event.spendCents || 0) / 100;
   }
 
@@ -168,7 +172,7 @@
   }
 
   function eventSpendText(event) {
-    if (state && state.quotaAwareEventDisplay && !isOnDemandEvent(event)) return "—";
+    if (state && state.quotaAwareEventDisplay && !countsIncludedSpend() && !isOnDemandEvent(event)) return "—";
     return formatDollars(eventSpendDollars(event));
   }
 
@@ -681,7 +685,9 @@
         e.maxMode ? "true" : "false",
         e.totalTokens || 0,
         state && state.quotaAwareEventDisplay && !isIncludedEvent(e) ? "" : (e.requests || 0),
-        state && state.quotaAwareEventDisplay && !isOnDemandEvent(e) ? "" : eventSpendDollars(e).toFixed(4),
+        state && state.quotaAwareEventDisplay && !countsIncludedSpend() && !isOnDemandEvent(e)
+          ? ""
+          : eventSpendDollars(e).toFixed(4),
       ].map(csvCell).join(",");
       lines.push(row);
     }

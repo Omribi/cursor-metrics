@@ -32,6 +32,7 @@ describe("buildDashboardState", () => {
     expect(state.events.length).toBe(5);
     expect(state.isTeamMember).toBeTrue();
     expect(state.quotaAwareEventDisplay).toBeTrue();
+    expect(state.countIncludedSpend).toBeFalse();
     expect(state.error).toBeNull();
     expect(state.resetsAt).toBeNull();
   });
@@ -123,6 +124,23 @@ describe("aggregateChartSeries", () => {
     const series = aggregateChartSeries(events, [], "7d", null, "spend", "all", now);
     const codex = series.datasets.find((d) => d.model === "gpt-5.3-codex")!;
     expect(sumOf(codex.data)).toBeCloseTo(3.2, 5);
+  });
+
+  it("counts included spend for spend-based included usage", () => {
+    const events: UsageEvent[] = [
+      { timestamp: now - dayMs, model: "gpt-5.3-codex", kind: "Included", totalTokens: 2000, requests: 2, spendCents: 450, maxMode: false },
+      { timestamp: now - dayMs, model: "gpt-5.3-codex", kind: "On-Demand", totalTokens: 3000, requests: 1.5, spendCents: 320, maxMode: true },
+    ];
+
+    const series = aggregateChartSeries(events, [], "7d", null, "spend", "all", now, true, true);
+    const codex = series.datasets.find((d) => d.model === "gpt-5.3-codex")!;
+    expect(sumOf(codex.data)).toBeCloseTo(7.7, 5);
+  });
+
+  it("sets countIncludedSpend when usage is a dollar pool", () => {
+    const spendBased = { ...sampleData, includedMetric: "cents" as const };
+    const state = buildDashboardState(spendBased, sampleEvents, [], true, null, now, true);
+    expect(state.countIncludedSpend).toBeTrue();
   });
 
   it("keeps included chargedCents in spend when quota-aware display is disabled", () => {
