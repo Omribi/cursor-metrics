@@ -11,13 +11,20 @@ export function toFiniteNumber(value: unknown): number | null {
   return null;
 }
 
+function isChargeableEvent(event: Record<string, unknown>): boolean {
+  return event.isChargeable === true || event.isChargeable === "true";
+}
+
 /**
- * Included usage on current Cursor plans is billed against a dollar pool.
- * chargedCents stays 0; the cost lives on tokenUsage.totalCents.
+ * Amount that actually hit the user's bill or included-dollar pool.
+ * tokenUsage.totalCents is list price and is still populated for free-credit
+ * models (Grok 4.6, Composer on some team licenses) that Cursor does not charge.
  */
 export function parseEventSpendCents(event: Record<string, unknown>): number {
   const charged = toFiniteNumber(event.chargedCents);
   if (charged !== null && charged !== 0) return charged;
+
+  if (!isChargeableEvent(event)) return charged ?? 0;
 
   const tokenUsage = asRecord(event.tokenUsage);
   const totalCents = tokenUsage ? toFiniteNumber(tokenUsage.totalCents) : null;

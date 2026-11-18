@@ -9,16 +9,26 @@ describe("parseEventSpendCents", () => {
     })).toBe(124.73);
   });
 
-  it("uses tokenUsage.totalCents when chargedCents is zero", () => {
+  it("uses tokenUsage.totalCents only when the event is chargeable and chargedCents is 0", () => {
     expect(parseEventSpendCents({
       chargedCents: 0,
+      isChargeable: true,
+      tokenUsage: { totalCents: 12.5 },
+    })).toBe(12.5);
+  });
+
+  it("ignores list-price totalCents on free-credit models", () => {
+    expect(parseEventSpendCents({
+      chargedCents: 0,
+      isChargeable: false,
       tokenUsage: { totalCents: 94.42040252685547 },
-    })).toBe(94.42040252685547);
+    })).toBe(0);
   });
 
   it("parses numeric strings from the dashboard API", () => {
     expect(parseEventSpendCents({
       chargedCents: "0",
+      isChargeable: true,
       tokenUsage: { totalCents: "12.5" },
     })).toBe(12.5);
   });

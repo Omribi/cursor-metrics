@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.23] - 2026-11-18
+
+### Fixed
+- Do not treat `tokenUsage.totalCents` as billed spend when Cursor marks the event `isChargeable: false`. Team licenses that include Grok 4.6 and Composer as free credits were showing list price as if it came out of the usage pool.
+- Show "—" for uncharged event and model spend, matching cursor.com, instead of a theoretical dollar amount.
+
 ## [0.5.22] - 2026-11-18
 
 ### Fixed

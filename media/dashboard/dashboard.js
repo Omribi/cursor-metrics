@@ -123,6 +123,11 @@
     return "$" + (n || 0).toFixed(2);
   }
 
+  function formatSpendDollars(n) {
+    if (!n) return "—";
+    return formatDollars(n);
+  }
+
   function toMillis(ts) {
     if (typeof ts === "number") return ts;
     if (typeof ts === "string" && ts !== "") {
@@ -173,7 +178,7 @@
 
   function eventSpendText(event) {
     if (state && state.quotaAwareEventDisplay && !countsIncludedSpend() && !isOnDemandEvent(event)) return "—";
-    return formatDollars(eventSpendDollars(event));
+    return formatSpendDollars(eventSpendDollars(event));
   }
 
   function formatDayLabel(dayMs) {
@@ -396,7 +401,7 @@
     const metricLabel = isSpend ? "Spend" : opts.metric === "tokens" ? "Tokens" : "Requests";
 
     const formatMetric = (v) =>
-      isSpend ? formatDollars(v) : opts.metric === "tokens" ? formatTokens(v) : formatRequests(v);
+      isSpend ? formatSpendDollars(v) : opts.metric === "tokens" ? formatTokens(v) : formatRequests(v);
 
     const rows = dataPoints.map((dp) => {
       const ds = dp.dataset;
@@ -407,7 +412,7 @@
         '<tr>' +
           '<td><span class="t-dot" style="background:' + color + '"></span>' + escapeHtml(ds.label) + '</td>' +
           '<td class="num">' + formatMetric(v) + '</td>' +
-          (isSpend ? "" : '<td class="num">' + formatDollars(spend) + '</td>') +
+          (isSpend ? "" : '<td class="num">' + formatSpendDollars(spend) + '</td>') +
         '</tr>'
       );
     }).join("");
@@ -666,7 +671,7 @@
         '<td>' + escapeHtml(r.model) + '</td>' +
         '<td class="num">' + formatRequests(r.requests) + '</td>' +
         '<td class="num">' + formatTokens(r.totalTokens) + '</td>' +
-        '<td class="num">' + formatDollars(r.spendCents / 100) + '</td>' +
+        '<td class="num">' + formatSpendDollars(r.spendCents / 100) + '</td>' +
       '</tr>';
     }).join("");
   }
@@ -678,6 +683,7 @@
     for (const e of events) {
       const ts = toMillis(e.timestamp);
       const dateStr = Number.isFinite(ts) ? new Date(ts).toISOString() : "";
+      const spendUsd = eventSpendDollars(e);
       const row = [
         dateStr,
         e.kind,
@@ -687,7 +693,7 @@
         state && state.quotaAwareEventDisplay && !isIncludedEvent(e) ? "" : (e.requests || 0),
         state && state.quotaAwareEventDisplay && !countsIncludedSpend() && !isOnDemandEvent(e)
           ? ""
-          : eventSpendDollars(e).toFixed(4),
+          : spendUsd ? spendUsd.toFixed(4) : "",
       ].map(csvCell).join(",");
       lines.push(row);
     }
