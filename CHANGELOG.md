@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.21] - 2026-11-18
+
+### Fixed
+- Manual Refresh now fetches live included usage immediately instead of no-op'ing while the slower events/history request is still in flight.
+- Bypass cached `/api/usage-summary` responses so the dashboard Refresh button matches a browser reload on cursor.com/dashboard/usage.
+- Opening the dashboard from the status bar triggers a forced usage refresh, not only a restamp of the "Updated" clock.
+
 ## [0.5.20] - 2026-11-17
 
 ### Fixed

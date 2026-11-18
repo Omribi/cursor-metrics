@@ -417,7 +417,19 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function withTimeout(init: RequestInit = {}): RequestInit {
-  return { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) };
+  return {
+    cache: "no-store",
+    ...init,
+    signal: init.signal ?? AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  };
+}
+
+export function usageSummaryUrl(now = Date.now()): string {
+  return `https://cursor.com/api/usage-summary?_=${now}`;
+}
+
+export function invalidateAuthCache(): void {
+  cachedAuth = { info: null, ts: 0 };
 }
 
 function toNumber(value: unknown): number | null {
@@ -515,7 +527,13 @@ function extractUsageTotals(usageRaw: unknown): RequestTotals {
 async function fetchUsageSummary(
   headers: ReturnType<typeof cursorHeaders>,
 ): Promise<Record<string, unknown> | null> {
-  const res = await fetch("https://cursor.com/api/usage-summary", withTimeout({ headers }));
+  const res = await fetch(usageSummaryUrl(), withTimeout({
+    headers: {
+      ...headers,
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    },
+  }));
   if (!res.ok) {
     log(`usage-summary failed: ${res.status}`);
     return null;
@@ -564,7 +582,13 @@ async function ensureSetup(
   const [stripeRes, usageRes, summaryRes] = await Promise.all([
     fetch("https://cursor.com/api/auth/stripe", withTimeout({ headers })),
     fetch(`https://cursor.com/api/usage?user=${userId}`, withTimeout({ headers })),
-    fetch("https://cursor.com/api/usage-summary", withTimeout({ headers })),
+    fetch(usageSummaryUrl(), withTimeout({
+      headers: {
+        ...headers,
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+    })),
   ]);
 
   log(`Setup: Stripe ${stripeRes.status}, Usage ${usageRes.status}, Summary ${summaryRes.status}`);

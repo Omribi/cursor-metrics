@@ -4,6 +4,7 @@ import {
   fetchDailySpendByCategory,
   fetchUsageData,
   fetchUsageEvents,
+  invalidateAuthCache,
   isTeamMemberCached,
   type DailySpendRow,
   type UsagePayload,
@@ -40,7 +41,8 @@ let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 let lastData: UsagePayload | null = null;
 let lastError: string | null = null;
 let lastFetchTime = 0;
-let isFetching = false;
+let usageInFlight: Promise<void> | null = null;
+let eventsGeneration = 0;
 let lastEvents: UsageEvent[] | null = null;
 let lastDailySpend: DailySpendRow[] | null = null;
 
@@ -259,66 +261,94 @@ function updateStatusBar(data: UsagePayload) {
   statusBarItem.tooltip = tooltip;
 }
 
-async function updateUsage() {
-  if (isFetching) return;
-  isFetching = true;
+function applyUsagePayload(data: UsagePayload | null, fetchFailed: boolean): void {
+  if (data) {
+    lastData = data;
+    lastError = null;
+    updateStatusBar(data);
+    return;
+  }
 
-  statusBarItem.text = statusBarItem.text.replace("$(pulse)", "$(loading~spin)");
-  await new Promise((r) => setTimeout(r, 0));
+  lastError = "Could not fetch usage data";
+  if (!lastData) {
+    statusBarItem.text = "$(warning) Usage unavailable";
+    statusBarItem.tooltip = "Could not fetch Cursor usage data. Click to see options.";
+    return;
+  }
+  statusBarItem.text = statusBarItem.text.replace("$(loading~spin)", "$(pulse)");
+  if (fetchFailed) {
+    log("Usage data fetch failed; keeping previously displayed totals");
+  }
+}
 
-  try {
-    const [dataResult, eventsResult, spendResult] = await Promise.allSettled([
-      fetchUsageData(),
-      fetchUsageEvents(),
-      fetchDailySpendByCategory(),
-    ]);
+async function syncEventsInBackground(): Promise<void> {
+  const generation = ++eventsGeneration;
+  log("Syncing usage events in the background...");
+  const [eventsResult, spendResult] = await Promise.allSettled([
+    fetchUsageEvents(),
+    fetchDailySpendByCategory(),
+  ]);
+  if (generation !== eventsGeneration) {
+    log("Ignoring stale usage-events result; a newer refresh is in flight");
+    return;
+  }
 
-    if (eventsResult.status === "fulfilled") {
-      lastEvents = eventsResult.value;
-    } else if (eventsResult.status === "rejected") {
-      log(`Usage events fetch failed: ${eventsResult.reason}`);
-    }
+  if (eventsResult.status === "fulfilled") {
+    lastEvents = eventsResult.value;
+  } else {
+    log(`Usage events fetch failed: ${eventsResult.reason}`);
+  }
 
-    if (spendResult.status === "fulfilled") {
-      lastDailySpend = spendResult.value;
-    } else if (spendResult.status === "rejected") {
-      log(`Daily spend fetch failed: ${spendResult.reason}`);
-    }
+  if (spendResult.status === "fulfilled") {
+    lastDailySpend = spendResult.value;
+  } else {
+    log(`Daily spend fetch failed: ${spendResult.reason}`);
+  }
 
-    const data = dataResult.status === "fulfilled" ? dataResult.value : null;
-    if (dataResult.status === "rejected") {
-      log(`Usage data fetch failed: ${dataResult.reason}`);
-    }
+  DashboardPanel.currentPanel?.postState(getDashboardState());
+}
 
-    if (data) {
-      lastData = data;
-      lastError = null;
-      updateStatusBar(data);
-    } else {
-      lastError = "Could not fetch usage data";
+async function updateUsage(opts: { force?: boolean } = {}): Promise<void> {
+  const force = opts.force === true;
+  if (force) {
+    invalidateAuthCache();
+  }
+
+  if (usageInFlight) {
+    await usageInFlight;
+    if (!force) return;
+  }
+
+  const run = (async () => {
+    statusBarItem.text = statusBarItem.text.replace("$(pulse)", "$(loading~spin)");
+    await new Promise((r) => setTimeout(r, 0));
+
+    try {
+      log(force ? "--- Forced usage refresh ---" : "--- Fetching usage data ---");
+      const data = await fetchUsageData();
+      applyUsagePayload(data, data === null);
+      lastFetchTime = Date.now();
+      DashboardPanel.currentPanel?.postState(getDashboardState());
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log(`Error in updateUsage: ${msg}`);
+      lastError = msg;
       if (!lastData) {
         statusBarItem.text = "$(warning) Usage unavailable";
-        statusBarItem.tooltip = "Could not fetch Cursor usage data. Click to see options.";
+        statusBarItem.tooltip = `Error: ${msg}`;
       } else {
         statusBarItem.text = statusBarItem.text.replace("$(loading~spin)", "$(pulse)");
       }
+      lastFetchTime = Date.now();
+      DashboardPanel.currentPanel?.postState(getDashboardState());
     }
+  })();
 
-    DashboardPanel.currentPanel?.postState(getDashboardState());
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log(`Error in updateUsage: ${msg}`);
-    lastError = msg;
-    if (!lastData) {
-      statusBarItem.text = "$(warning) Usage unavailable";
-      statusBarItem.tooltip = `Error: ${msg}`;
-    } else {
-      statusBarItem.text = statusBarItem.text.replace("$(loading~spin)", "$(pulse)");
-    }
-  } finally {
-    isFetching = false;
-    lastFetchTime = Date.now();
-  }
+  usageInFlight = run.finally(() => {
+    if (usageInFlight === run) usageInFlight = null;
+  });
+  await run;
+  void syncEventsInBackground();
 }
 
 async function showDetails() {
@@ -330,7 +360,7 @@ async function showDetails() {
         : "Cursor usage data is not available yet.",
       ...items,
     );
-    if (action === "Refresh") await updateUsage();
+    if (action === "Refresh") await updateUsage({ force: true });
     else if (action === "Open Dashboard") await vscode.commands.executeCommand(OPEN_DASHBOARD_COMMAND);
     else if (action === "Show Logs") outputChannel.show();
     return;
@@ -362,7 +392,7 @@ async function showDetails() {
   if (action === "Open Dashboard") {
     await vscode.commands.executeCommand(OPEN_DASHBOARD_COMMAND);
   } else if (action === "Refresh") {
-    await updateUsage();
+    await updateUsage({ force: true });
   }
 }
 
@@ -394,11 +424,13 @@ export function activate(context: vscode.ExtensionContext) {
   statusBarItem.show();
 
   const showDetailsCmd = vscode.commands.registerCommand("cursor-usage.showDetails", showDetails);
-  const refreshCmd = vscode.commands.registerCommand("cursor-usage.refresh", updateUsage);
+  const refreshFromUser = () => updateUsage({ force: true });
+  const refreshCmd = vscode.commands.registerCommand("cursor-usage.refresh", refreshFromUser);
   const openDurationSettingCmd = vscode.commands.registerCommand(OPEN_DURATION_SETTING_COMMAND, openDurationSetting);
   const openDashboardCmd = vscode.commands.registerCommand(OPEN_DASHBOARD_COMMAND, () => {
-    DashboardPanel.createOrShow(context, updateUsage, getDashboardState);
+    DashboardPanel.createOrShow(context, refreshFromUser, getDashboardState);
     DashboardPanel.currentPanel?.postState(getDashboardState());
+    void updateUsage({ force: true });
   });
 
   const configListener = vscode.workspace.onDidChangeConfiguration((e) => {
