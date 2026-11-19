@@ -135,14 +135,14 @@ export class DashboardPanel {
     </div>
   </section>
 
-  <section class="chart-section collapsible-section" data-section="usage">
+  <section class="chart-section collapsible-section collapsed" data-section="usage">
     <div class="chart-header">
       <div class="section-title-row" data-toggle-section="usage">
         <button
           type="button"
           class="section-toggle"
           data-toggle-section="usage"
-          aria-expanded="true"
+          aria-expanded="false"
           aria-controls="section-body-usage"
           aria-label="Toggle Your Usage section"
         >
@@ -170,7 +170,7 @@ export class DashboardPanel {
         </label>
       </div>
     </div>
-    <div id="section-body-usage" class="section-body">
+    <div id="section-body-usage" class="section-body hidden">
       <div class="chart-wrapper">
         <canvas id="usage-chart"></canvas>
       </div>
@@ -178,14 +178,14 @@ export class DashboardPanel {
     </div>
   </section>
 
-  <section class="model-breakdown-section collapsible-section" data-section="breakdown">
+  <section class="model-breakdown-section collapsible-section collapsed" data-section="breakdown">
     <div class="events-header">
       <div class="section-title-row" data-toggle-section="breakdown">
         <button
           type="button"
           class="section-toggle"
           data-toggle-section="breakdown"
-          aria-expanded="true"
+          aria-expanded="false"
           aria-controls="section-body-breakdown"
           aria-label="Toggle Usage by Model section"
         >
@@ -195,7 +195,7 @@ export class DashboardPanel {
       </div>
       <span class="muted small" id="breakdown-range-label"></span>
     </div>
-    <div id="section-body-breakdown" class="section-body">
+    <div id="section-body-breakdown" class="section-body hidden">
       <div class="table-scroll">
         <table id="breakdown-table">
           <thead>

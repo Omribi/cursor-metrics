@@ -270,6 +270,10 @@ label select { color: var(--input-fg); }
 .collapsible-section.collapsed .events-header {
   margin-bottom: 0;
 }
+.collapsible-section.collapsed .chart-filters,
+.collapsible-section.collapsed #breakdown-range-label {
+  display: none;
+}
 
 .chart-wrapper {
   position: relative;

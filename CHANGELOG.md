@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.25] - 2026-11-19
+
+### Changed
+- Collapse Your Usage and Usage by Model by default so the dashboard opens on the events table.
+
 ## [0.5.24] - 2026-11-19
 
 ### Fixed

@@ -24,6 +24,7 @@
   };
 
   const persisted = vscode.getState() || {};
+  const SECTION_OPEN_VERSION = 2;
   const local = {
     range: persisted.range || "billingCycle",
     usageFilter: persisted.usageFilter || "all",
@@ -32,11 +33,17 @@
     sortOrder: persisted.sortOrder || "desc",
     breakdownSortKey: persisted.breakdownSortKey || "totalTokens",
     breakdownSortOrder: persisted.breakdownSortOrder || "desc",
-    sectionOpen: {
-      usage: persisted.sectionOpen?.usage !== false,
-      breakdown: persisted.sectionOpen?.breakdown !== false,
-      events: persisted.sectionOpen?.events !== false,
-    },
+    sectionOpen: persisted.sectionOpenVersion === SECTION_OPEN_VERSION
+      ? {
+        usage: persisted.sectionOpen?.usage === true,
+        breakdown: persisted.sectionOpen?.breakdown === true,
+        events: persisted.sectionOpen?.events !== false,
+      }
+      : {
+        usage: false,
+        breakdown: false,
+        events: persisted.sectionOpen?.events !== false,
+      },
   };
 
   let state = null;
@@ -65,6 +72,7 @@
       sortOrder: local.sortOrder,
       breakdownSortKey: local.breakdownSortKey,
       breakdownSortOrder: local.breakdownSortOrder,
+      sectionOpenVersion: SECTION_OPEN_VERSION,
       sectionOpen: local.sectionOpen,
     });
   }
