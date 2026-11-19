@@ -34,6 +34,7 @@ import {
   formatMinimalStatusBarUsageText,
   formatStatusBarUsageText,
 } from "./usage-display";
+import { mergeNewestEvents } from "./usage-events";
 
 let statusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
@@ -42,9 +43,13 @@ let lastData: UsagePayload | null = null;
 let lastError: string | null = null;
 let lastFetchTime = 0;
 let usageInFlight: Promise<void> | null = null;
-let eventsGeneration = 0;
+let eventsSync: Promise<void> | null = null;
+let eventsSyncQueued = false;
+let eventsRetryLatest = false;
+let firstPageWaiters: Array<() => void> = [];
 let lastEvents: UsageEvent[] | null = null;
 let lastDailySpend: DailySpendRow[] | null = null;
+const EVENTS_LATEST_RETRY_MS = 1_500;
 
 const DEBOUNCE_MS = 30_000;
 
@@ -281,31 +286,82 @@ function applyUsagePayload(data: UsagePayload | null, fetchFailed: boolean): voi
   }
 }
 
-async function syncEventsInBackground(): Promise<void> {
-  const generation = ++eventsGeneration;
-  log("Syncing usage events in the background...");
+function resolveFirstPageWaiters(): void {
+  const waiters = firstPageWaiters;
+  firstPageWaiters = [];
+  for (const resolve of waiters) resolve();
+}
+
+function applyEvents(events: UsageEvent[]): void {
+  lastEvents = events;
+  DashboardPanel.currentPanel?.postState(getDashboardState());
+}
+
+async function runEventsSyncOnce(opts?: { retryLatest?: boolean }): Promise<void> {
+  log("Syncing usage events...");
+  try {
+    const firstPage = await fetchUsageEvents({ maxPages: 1 });
+    applyEvents(mergeNewestEvents(lastEvents ?? [], firstPage));
+  } catch (error) {
+    log(`Latest usage events page failed: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    resolveFirstPageWaiters();
+  }
+
+  if (opts?.retryLatest) {
+    await new Promise((resolve) => setTimeout(resolve, EVENTS_LATEST_RETRY_MS));
+    try {
+      const retryPage = await fetchUsageEvents({ maxPages: 1 });
+      applyEvents(mergeNewestEvents(lastEvents ?? [], retryPage));
+    } catch (error) {
+      log(`Usage events retry failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   const [eventsResult, spendResult] = await Promise.allSettled([
     fetchUsageEvents(),
     fetchDailySpendByCategory(),
   ]);
-  if (generation !== eventsGeneration) {
-    log("Ignoring stale usage-events result; a newer refresh is in flight");
-    return;
-  }
 
   if (eventsResult.status === "fulfilled") {
-    lastEvents = eventsResult.value;
+    applyEvents(mergeNewestEvents(eventsResult.value, lastEvents ?? []));
   } else {
     log(`Usage events fetch failed: ${eventsResult.reason}`);
   }
 
   if (spendResult.status === "fulfilled") {
     lastDailySpend = spendResult.value;
+    DashboardPanel.currentPanel?.postState(getDashboardState());
   } else {
     log(`Daily spend fetch failed: ${spendResult.reason}`);
   }
+}
 
-  DashboardPanel.currentPanel?.postState(getDashboardState());
+function syncEventsInBackground(opts?: { retryLatest?: boolean }): { firstPage: Promise<void>; done: Promise<void> } {
+  const firstPage = new Promise<void>((resolve) => {
+    firstPageWaiters.push(resolve);
+  });
+
+  if (opts?.retryLatest) eventsRetryLatest = true;
+  eventsSyncQueued = true;
+  if (!eventsSync) {
+    eventsSync = (async () => {
+      try {
+        while (eventsSyncQueued) {
+          eventsSyncQueued = false;
+          const retryLatest = eventsRetryLatest;
+          eventsRetryLatest = false;
+          await runEventsSyncOnce({ retryLatest });
+        }
+      } finally {
+        resolveFirstPageWaiters();
+      }
+    })().finally(() => {
+      eventsSync = null;
+    });
+  }
+
+  return { firstPage, done: eventsSync ?? Promise.resolve() };
 }
 
 async function updateUsage(opts: { force?: boolean } = {}): Promise<void> {
@@ -348,7 +404,9 @@ async function updateUsage(opts: { force?: boolean } = {}): Promise<void> {
     if (usageInFlight === run) usageInFlight = null;
   });
   await run;
-  void syncEventsInBackground();
+  const events = syncEventsInBackground({ retryLatest: force });
+  if (force) await events.firstPage;
+  else void events.done;
 }
 
 async function showDetails() {

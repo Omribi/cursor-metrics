@@ -910,8 +910,9 @@ function parseEventKind(kind: string): string {
   return "Included";
 }
 
-export async function fetchUsageEvents(): Promise<UsageEvent[]> {
-  log("--- Fetching usage events ---");
+export async function fetchUsageEvents(opts?: { maxPages?: number }): Promise<UsageEvent[]> {
+  const maxPages = Math.max(1, opts?.maxPages ?? MAX_USAGE_EVENT_PAGES);
+  log(maxPages === 1 ? "--- Fetching latest usage events page ---" : "--- Fetching usage events ---");
 
   const auth = await getCursorToken();
   if (!auth) {
@@ -929,7 +930,7 @@ export async function fetchUsageEvents(): Promise<UsageEvent[]> {
   let page = 1;
   const allEvents: UsageEvent[] = [];
 
-  while (page <= MAX_USAGE_EVENT_PAGES) {
+  while (page <= maxPages) {
     const res = await fetch("https://cursor.com/api/dashboard/get-filtered-usage-events", withTimeout({
       method: "POST",
       headers,
@@ -982,10 +983,10 @@ export async function fetchUsageEvents(): Promise<UsageEvent[]> {
     page++;
   }
 
-  if (page > MAX_USAGE_EVENT_PAGES) {
-    log(`Stopped usage events fetch after ${MAX_USAGE_EVENT_PAGES} page(s)`);
+  if (page > maxPages) {
+    log(`Stopped usage events fetch after ${maxPages} page(s)`);
   }
 
-  log(`Fetched ${allEvents.length} usage events across ${Math.min(page, MAX_USAGE_EVENT_PAGES)} page(s)`);
+  log(`Fetched ${allEvents.length} usage events across ${Math.min(page, maxPages)} page(s)`);
   return allEvents;
 }

@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.24] - 2026-11-19
+
+### Fixed
+- Keep Refresh spinning until the latest events page is applied, so a new request is not missing from the table after the usage bar has already updated.
+- Do not abort an in-flight events fetch when Refresh is clicked again; queue one more sync instead of throwing away the result.
+- Merge the newest events page into the table immediately, then retry once after a short delay so Cursor's slower events API can catch up with usage-summary.
+
 ## [0.5.23] - 2026-11-18
 
 ### Fixed
